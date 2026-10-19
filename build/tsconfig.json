@@ -1,0 +1,22 @@
+// The compiler options applets are type-checked with. Check embeds this file
+// and extends it with the files to check, so changing an option here changes
+// what applets may do. Editors use it for runtime.d.ts.
+{
+	"compilerOptions": {
+		"strict": true,
+		"noEmit": true,
+		// The applet can only refer to ambient modules in its declarations,
+		// never to files on disk.
+		"noResolve": true,
+		"target": "es2023",
+		// No DOM: applets do not run in a browser.
+		"lib": ["es2023"],
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"types": [],
+		"skipLibCheck": true,
+		"noImplicitReturns": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedIndexedAccess": true
+	}
+}

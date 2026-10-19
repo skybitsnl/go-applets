@@ -1,0 +1,6 @@
+// For editors: check the applets here as build.Check does, with the
+// compiler options and runtime declarations of package build.
+{
+	"extends": "../../build/tsconfig.json",
+	"files": ["tac.ts", "file.d.ts", "../../build/runtime.d.ts"]
+}
