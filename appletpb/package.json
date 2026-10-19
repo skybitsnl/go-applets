@@ -1,0 +1,12 @@
+{
+  "name": "appletpb",
+  "version": "1.0.0",
+  "devDependencies": {
+    "grpc-tools": "^1.13.1"
+  },
+  "dependenciesMeta": {
+    "grpc-tools@1.12.4": {
+      "built": true
+    }
+  }
+}

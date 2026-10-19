@@ -1,0 +1,165 @@
+// The API of appletd, a service that builds and runs applets: small,
+// untrusted TypeScript programs that change a stream of JSON objects.
+
+syntax = "proto3";
+
+package applets.v1;
+
+option go_package = "github.com/skybitsnl/go-applets/appletpb";
+
+// Applets builds and runs applets.
+service Applets {
+  // Run builds the applets in Start, and runs them as a pipeline over the
+  // objects the client sends.
+  //
+  // The client sends Start, then the input objects, and half-closes the
+  // stream when the input ends. The server sends Running once the applets
+  // are built, then output objects and log lines as they come, then exactly
+  // one of Done, Error or CompileError, and ends the stream with status OK.
+  // The client may cancel the stream at any time, which stops the applets.
+  //
+  // The server reads the next input object only when the first applet asks
+  // for it, so a client that sends faster is held back by flow control.
+  //
+  // Problems with the request itself end the stream with an error status
+  // instead: INVALID_ARGUMENT for a request that breaks the rules described
+  // here or exceeds a limit of the server, and RESOURCE_EXHAUSTED when the
+  // server runs too many streams.
+  rpc Run(stream RunRequest) returns (stream RunResponse);
+}
+
+message RunRequest {
+  oneof kind {
+    // Start is the first message, and is sent only once.
+    Start start = 1;
+    // An input object for the first applet.
+    Object object = 2;
+  }
+}
+
+message Start {
+  // The applets run in this order: the input objects go to the first, the
+  // output objects of each are the input objects of the next, and the
+  // output objects of the last go to the client. There is at least one; the
+  // server may limit how many.
+  repeated Applet applets = 1;
+  // The content of a .d.ts file with the ambient modules the applets may
+  // import types from, e.g. `declare module "shop" { ... }`.
+  string declarations = 2;
+  Limits limits = 3;
+}
+
+message Applet {
+  // The TypeScript source of the applet.
+  string source = 1;
+  // A type the default export of the applet must be assignable to, e.g.
+  // `import("go-applets").Applet<import("shop").Order>`. The applets in a
+  // pipeline may have different signatures; the server does not check that
+  // the output type of one applet is the input type of the next.
+  string signature = 2;
+  // The params of the applet as JSON, or empty if it has none. They are not
+  // checked against the params type in the signature.
+  bytes params = 3;
+}
+
+// Limits may lower the limits of the server for this stream. A field left
+// unset means the server's limit; a value the server does not allow is
+// refused with INVALID_ARGUMENT.
+message Limits {
+  // The maximum size of each linear memory of each applet, in MiB.
+  uint32 memory_mib = 1;
+  // If set, cancelling the stream no longer stops an applet that is running:
+  // it is stopped only when it next waits for input or delivers output. This
+  // makes applets run faster, but an applet that never does either keeps
+  // running forever, so it weakens the sandbox. The server refuses it unless
+  // it is configured to allow it.
+  bool no_close_on_context_done = 2;
+}
+
+message Object {
+  // A JSON object.
+  bytes json = 1;
+}
+
+message RunResponse {
+  oneof kind {
+    Running running = 1;
+    // An object produced by the last applet in the pipeline.
+    Object object = 2;
+    Log log = 3;
+    Done done = 4;
+    Error error = 5;
+    CompileError compile_error = 6;
+  }
+}
+
+// Running is sent once all applets are built, before any Object or Log. A
+// client that only wants to check the applets can wait for Running or
+// CompileError, then cancel the stream.
+message Running {}
+
+// Log is a line an applet logged.
+message Log {
+  // The index of the applet in Start.applets.
+  int32 applet = 1;
+  // The line, cut short if it does not fit in a message.
+  string line = 2;
+}
+
+// Done ends a run in which every applet finished, and all output was sent.
+message Done {}
+
+// Error ends a run in which an applet failed. The other applets are stopped.
+message Error {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    // The applet threw an exception, or crashed.
+    APPLET_FAILED = 1;
+    // The applet exceeded its memory limit.
+    OUT_OF_MEMORY = 2;
+    // The applet output something that is not a JSON object, an object too
+    // large for a message, or something after it finished.
+    INVALID_OUTPUT = 3;
+    // The applet stopped without finishing.
+    NOT_DONE = 4;
+  }
+  // The index of the applet in Start.applets.
+  int32 applet = 1;
+  Reason reason = 2;
+  // The message and the stack come from the applet, and the server may cut
+  // them short.
+  string message = 3;
+  // The JavaScript stack trace, if there is one.
+  string stack = 4;
+  // The index of the input object the applet was processing, counting the
+  // input objects of this applet, if it was processing one.
+  optional int64 input = 5;
+}
+
+// CompileError ends a run in which one or more applets did not build. It
+// has the errors of every applet that did not build, and nothing ran.
+message CompileError {
+  repeated SourceError errors = 1;
+}
+
+// SourceError is a problem in the source of an applet, such as a type error
+// or a syntax error.
+message SourceError {
+  enum Step {
+    STEP_UNSPECIFIED = 0;
+    TYPECHECK = 1;
+    BUNDLE = 2;
+    COMPILE = 3;
+  }
+  // The index of the applet in Start.applets.
+  int32 applet = 1;
+  // The step of building that found the problem.
+  Step step = 2;
+  // The 1-based line in the source, or 0 if the problem is not on a line.
+  int32 line = 3;
+  // The 1-based column in the source.
+  int32 column = 4;
+  // The tsc error code of a type error, e.g. "TS2322".
+  string code = 5;
+  string message = 6;
+}
